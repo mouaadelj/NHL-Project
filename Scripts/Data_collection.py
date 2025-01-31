@@ -332,39 +332,44 @@ def transformEventData(df: pd.DataFrame) -> pd.DataFrame:
     for idx in range(df.shape[1]):
         play_data = df.iloc[:, idx]["plays"]
         game_details = df.iloc[:, idx]
-                 
         home_team_name = game_details["homeTeam"]["id"]
         away_team_name = game_details["awayTeam"]["id"]
         power_play_status = {'home_team': None, 'away_team': None}
-            
+        rink_sides = {}
+
         for event_index, single_event in enumerate(play_data):
-            if single_event["typeDescKey"] in ["period-start", "faceoff"]:
-                details = single_event.get("details", {})
-                x_coord = details.get("xCoord")
-                team_id = details.get("eventOwnerTeamId")
-                
-                if team_id is not None and x_coord is not None:
+
+            if single_event['typeDescKey'] not in ["shot-on-goal", "goal"]:
+                continue
+        
+            details = single_event.get("details", {})
+            x_coord = details.get("xCoord")
+            team_id = details.get("eventOwnerTeamId")
+            period = single_event['periodDescriptor']['number']
+
+            if team_id is not None and x_coord is not None:
+                if period not in rink_sides:
                     # Assign rinkside based on the first event
                     if x_coord < 0:
-
+                        
                         home_rink_side = "left" if team_id == home_team_name else "right"
                         away_rink_side = "right" if team_id == home_team_name else "left"
-                       
+                        
                     elif x_coord > 0:
 
                         home_rink_side = "right" if team_id == home_team_name else "left"
                         away_rink_side = "left" if team_id == home_team_name else "right"
-
+                    if single_event['periodDescriptor']['number'] == 2:
+                        rink_sides[single_event['periodDescriptor']['number']] = {"home": away_rink_side, "away": home_rink_side}  # Switch sides in 2nd period
+                    else:
+                        rink_sides[single_event['periodDescriptor']['number']] = {"home": home_rink_side, "away": away_rink_side}
+            rink_sides[single_event['periodDescriptor']['number']] = {"home": home_rink_side, "away": away_rink_side}
             period_time_str = single_event['timeInPeriod']
             minutes, seconds = map(int, period_time_str.split(':'))
             period_time= int(minutes * 60 + seconds)
 
             update_power_play_status(play_data, event_index, power_play_status, home_team_name, away_team_name)
 
-            evt_type = single_event['typeDescKey']
-            if evt_type not in ["shot-on-goal", "goal"]:
-                continue
-            
             temp_data['gameId'].append(game_details.name)
             temp_data['shotCategory'].append(single_event['details'].get('shotType', pd.NA))
             temp_data['coord_x'].append(single_event['details'].get('xCoord', pd.NA))
@@ -379,9 +384,9 @@ def transformEventData(df: pd.DataFrame) -> pd.DataFrame:
             else : 
                 temp_data['team'].append(df.iloc[:, idx]['awayTeam']['commonName']['default'])
 
-            temp_data['goalFlag'].append(evt_type == "goal")
-            temp_data['homeRinkSide'].append(home_rink_side if single_event['periodDescriptor']['number'] != 2 else away_rink_side) # à vérifier
-            temp_data['awayRinkSide'].append(away_rink_side if single_event['periodDescriptor']['number'] != 2 else home_rink_side)
+            temp_data['goalFlag'].append(single_event['typeDescKey'] == "goal")
+            temp_data['homeRinkSide'].append(rink_sides[period]["home"]) # à vérifier
+            temp_data['awayRinkSide'].append(rink_sides[period]["away"])
             #str_code = 'NA' if evt_type == "SHOT" else single_event['result']['strength']['code']
             #temp_data['teamStrength'].append(str_code)
             
@@ -444,7 +449,13 @@ def transformEventData(df: pd.DataFrame) -> pd.DataFrame:
     # Gestion des cas où time_since_last_event est zéro pour éviter une division par zéro
     output_df['vitesse'].replace(np.inf, 0, inplace=True)
     output_df['vitesse'].fillna(0, inplace=True)
+    folder_path = '../data/derivatives'
 
+    # Create the folder if it doesn't exist
+    os.makedirs(folder_path, exist_ok=True)
+
+    # Save the dataframe to the specified path
+    output_df.to_csv(os.path.join(folder_path, 'DATA.csv'), index=False)
     return output_df
 
 def fusion_features(engineering1, engineering2):
