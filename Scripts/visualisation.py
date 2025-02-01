@@ -82,15 +82,17 @@ def Distance_goals (data : pd.DataFrame, saison: int):
 def Distance_goals_shots (data: pd.DataFrame, saison: int):
     df = data[(data['goalFlag'] == True) & (data['gameId']//1000000 == saison)].copy()
     df['distance'] = np.sqrt((90-np.absolute(df['coord_x'])).pow(2) + df['coord_y'].pow(2))
-    
+    e = 1e-10
+    plt.figure(figsize=(10, 6))
+
     for tir in data['shotCategory'].dropna().unique():
         probability_tir=[]
         x=[]
         for i in range(0,110,5):
-            probability_tir.append(len(df[(df['distance'] > i) & (df['distance'] < i+5)& (df['shotCategory'] == tir)])/len(df[df['shotCategory']== tir]))
+            probability_tir.append(len(df[(df['distance'] > i) & (df['distance'] < i+5)& (df['shotCategory'] == tir)])/(len(df[df['shotCategory']== tir])+ e))
             x.append(i+2.5)
+        
         plt.plot(x, probability_tir, label=f'{tir} {saison}/{saison+1}', marker='o')
-
     plt.xlabel('Distance(pd)')
     plt.ylabel('Probabilité')
     plt.title('Distance vs Goal chances')
@@ -100,11 +102,24 @@ def Distance_goals_shots (data: pd.DataFrame, saison: int):
     plt.tight_layout()
     plt.show()
 
+def true_dist (a, x, y):
+    if a<0:
+        value = np.sqrt((-89 -x)**2 + y**2)
+    else:
+        value = np.sqrt((89 -x)**2 + y**2)
+    return value
 
 def Offensive_coords(data_1:pd.DataFrame):
-    dt=pd.DataFrame()
-    for gameid in data_1['gameId'].unique():
+    
+    
+    dt=data_1.copy()
+
+    dt['new_x'] = np.where(dt['coord_x'] >= 0, dt['coord_x'], -dt['coord_x'])
+    dt['new_y'] = np.where(dt['coord_x'] >= 0, dt['coord_y'], -dt['coord_y'])
+
+    """for gameid in data_1['gameId'].unique():
       df= pd.DataFrame()
+      
       dire = data_1[data_1['gameId']== gameid].reset_index().loc[0,'homeRinkSide']
       for i in range (1,5):
           df1=data_1[(data_1['gameId']== gameid) & (data_1['prd']== i)].copy()
@@ -125,28 +140,31 @@ def Offensive_coords(data_1:pd.DataFrame):
                    df1['new_x']= df1.apply(lambda row: 90 - row['coord_x'] if row['hostTeam']==row['team'] else 90 + row['coord_x'], axis=1)
                    df1['new_y']= df1.apply(lambda row: row['coord_y'] if row['hostTeam']==row['team'] else (-1)*row['coord_y'], axis=1)
           df=pd.concat([df,df1], axis=0, ignore_index=True)
-      dt=pd.concat([dt, df], axis=0, ignore_index=True)
+      dt=pd.concat([dt, df], axis=0, ignore_index=True)"""
     return dt
 
 
 def Taux_ligue(dt_f: pd.DataFrame, saison: int):
     taux_tir=[]
     df=dt_f[dt_f['gameId']//1000000 == saison]
+
     for i in range(0,90,5):
         row=[]
         for j in range(-45,40,5):
-            row.append(len(df[ (df['distance_x']< i+5) & (df['distance_x']> i) & (df['y_flipped']< j+5) & (df['y_flipped']> j)])/len(df['gameId'].unique()))
+            row.append(len(df[ (df['new_x']< i+5) & (df['new_x']> i) & (df['new_y']< j+5) & (df['new_y']> j)])/len(df['gameId'].unique()))
         taux_tir.append(row)
     return taux_tir
 
 
 def Taux_team(dt_f: pd.DataFrame, team: str, saison: int):
     taux_tir_team=[]
+    
     df = dt_f[(dt_f['team'] == team) & (dt_f['gameId']//1000000 == saison)]
+
     for i in range(0,90,5):
         row=[]
         for j in range(-45,40,5):
-            row.append(len(df[ (df['distance_x']< i+5) & (df['distance_x']> i) & (df['y_flipped']< j+5) & (df['y_flipped']> j)])/len(df['gameId'].unique()))
+            row.append(len(df[ (df['new_x']< i+5) & (df['new_x']> i) & (df['new_y']< j+5) & (df['new_y']> j)])/len(df['gameId'].unique()))
         taux_tir_team.append(row)
     return taux_tir_team
 
@@ -213,8 +231,8 @@ def hist_shots_goals_feature(data: pd.DataFrame, feature:str, transform: str, sa
 
     # Plot les histogrammes selon si un tir a mené à un but ou non
     plt.figure(figsize=(6, 4))
-    plt.hist(df[df['is_goal']==0][feature], bins=bins, label='Non but')
-    plt.hist(df[df['is_goal']==1][feature], bins=bins, label='But')
+    plt.hist(df[df['goalFlag']==0][feature], bins=bins, label='Non but')
+    plt.hist(df[df['goalFlag']==1][feature], bins=bins, label='But')
 
     # Étiqueté l'axe x
     feature_name, xlabel = rename_feature(feature)
@@ -296,7 +314,7 @@ def goal_rate(data: pd.DataFrame, feature: str, lower_bound: int=0, upper_bound:
     bins_idx = np.digitize(data[feature], bins, right=False)
 
     # Calculer le taux de buts par bin
-    goal_rate = [data[bins_idx==i]['is_goal'].sum()/len(data[bins_idx==i]['is_goal']) for i in np.unique(bins_idx)]
+    goal_rate = [data[bins_idx==i]['goalFlag'].sum()/len(data[bins_idx==i]['goalFlag']) for i in np.unique(bins_idx)]
     
     # Définir les xticks
     bins_label = [f"[{bins[i]}; {bins[i+1]}[" for i in range(len(bins[:-1]))]
@@ -341,15 +359,15 @@ def hist_goals_dist(data: pd.DataFrame, transform: str, save: bool):
     """
     df = data.copy()
     # Garder uniquement les buts
-    df = df[df['is_goal']==1]
+    df = df[df['goalFlag']==1]
 
     # Regrouper les distance en bins. Par défaut, 10 bins de même largeur
     hist, bins = np.histogram(df['shot_distance'], bins=50)
 
     # Plot les histogrammes selon si un tir a mené à un but ou non
     plt.figure(figsize=(6, 4))
-    plt.hist(df[df['empty_goal']==0]['shot_distance'], bins=bins, label='Filet non-vide')
-    plt.hist(df[df['empty_goal']==1]['shot_distance'], alpha=0.6, bins=bins, label='Filet vide')
+    plt.hist(df['shot_distance'], bins=bins, label='Filet non-vide')
+    #plt.hist(df[df['empty_goal']==1]['shot_distance'], alpha=0.6, bins=bins, label='Filet vide')
 
     # Étiqueté l'axe x
     feature_name, xlabel = rename_feature('shot_distance')
