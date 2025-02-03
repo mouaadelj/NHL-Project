@@ -470,6 +470,13 @@ def fusion_features(engineering1, engineering2):
         
     return engineering2
 
+def convert_time_to_seconds(time_str):
+    try:
+        minutes, seconds = map(int, time_str.split(":"))
+        return minutes * 60 + seconds
+    except ValueError:
+        return None  
+
 
 def preprocessing(df: pd.DataFrame, target: str):
     """
@@ -495,21 +502,28 @@ def preprocessing(df: pd.DataFrame, target: str):
     # On supprime les colonnes avec plus de 50% de NaN
     half_count = len(df) / 2
     df = df.dropna(thresh=half_count, axis=1)
-
+    df = df.dropna(subset=['shot_distance', 'shot_angle'])
     # Supprime les lignes avec des NaN
-    df = df.dropna()
+    #df = df.dropna()
     df = df.drop(columns=['gameId'])
     if 'index' in df.columns:
         df = df.drop(columns=['index'])
+    df['shotBy'] = df['shotBy'].fillna("Unknown")
 
+    # 2. Fill 'goalieName' with "Unknown"
+    df['goalieName'] = df['goalieName'].fillna(8888888.0)
     # Colonnes One-Hot Encoding
-    cols_to_encode = ['shotCategory', 'last_event_type']
+    """cols_to_encode = ['shotCategory', 'last_event_type','team', 
+        'visitorTeam', 'hostTeam', 'homeRinkSide', 'awayRinkSide']
     df_encoded = pd.get_dummies(df[cols_to_encode], dtype=int)
-    df = pd.concat([df, df_encoded], axis=1).drop(cols_to_encode, axis=1)
+    df = pd.concat([df, df_encoded], axis=1).drop(cols_to_encode, axis=1)"""
     # Colonnes à binariser
-    cols_to_binarize = ['rebond']
+    cols_to_binarize = ['rebond', 'shotCategory', 'last_event_type','team', 
+        'visitorTeam', 'hostTeam', 'homeRinkSide', 'awayRinkSide']
     for col in cols_to_binarize:
         df[col] = LabelEncoder().fit_transform(df[col])
+    
+    
 
     # Extraction de la variable cible
     y = df[target]
@@ -518,6 +532,17 @@ def preprocessing(df: pd.DataFrame, target: str):
     # Extraction des caractéristiques
     X = df.drop(target, axis=1)
 
+
+    # 3. Fill 'last_event_x', 'last_event_y', and 'distance_from_last_event' with the mean
+    X['last_event_x'] = X['last_event_x'].fillna(X['last_event_x'].mean())
+    X['last_event_y'] = X['last_event_y'].fillna(X['last_event_y'].mean())
+    X['distance_from_last_event'] = X['distance_from_last_event'].fillna(X['distance_from_last_event'].mean())
+    X['changement_angle_tir'] = X['changement_angle_tir'].fillna(X['changement_angle_tir'].mean())
+
+    # 4. Fill 'time_since_last_event' with the median
+    X['time_since_last_event'] = X['time_since_last_event'].fillna(X['time_since_last_event'].median())
+    # Apply conversion
+    X["prdTime"] = X["prdTime"].apply(convert_time_to_seconds)
     # Standardisation des variables numériques
     cols_to_standardize = [
         'coord_x', 'coord_y', 'last_event_x', 'last_event_y',  
