@@ -1,4 +1,4 @@
-# Predicting NHL Outcomes with Data Science
+# Predicting NHL goals using classification models
 
 ## Introduction
 
